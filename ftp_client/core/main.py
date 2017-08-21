@@ -10,12 +10,24 @@ from ftp_client.conf import Settings
 class FtpClient:
     ServerAddress=(Settings.ServerIp,Settings.ServerPort)
     def __init__(self):
+        commands = {
+            "h": self._help,
+            "help":self._help
+        }
         self.client=socket.socket()
 
     def connet_serve(self):
         self.client.connect(FtpClient.ServerAddress)
         #连接以后进行用户认证
         self.auth_identity()
+        #连接成功后进行操作
+        self.local_shell()
+
+    def local_shell(self):
+        while True :
+            #进行命令操作
+            command=input(self.__current_path+" >>>")
+
 
     def auth_identity(self):
         while True :
@@ -31,10 +43,15 @@ class FtpClient:
             if auth_result == "success" :
                 #认证成功
                 print("认证成功")
+                self.__current_path="home"
                 break
             else :
                 #认证失败，显示失败信息
                 print(auth_result)
+
+    def _help(self):
+        #显示帮助信息
+        pass
 
 def run():
     #创建ftp客户端
