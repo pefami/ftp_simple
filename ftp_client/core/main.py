@@ -2,7 +2,7 @@
 # -*-encoding:utf-8 -*-
 # @Time 2017/8/21 15:56
 # @Author pefami
-import socket, json
+import socket, json,os
 
 from ftp_client.conf import Settings
 
@@ -15,7 +15,8 @@ class FtpClient:
             "h": self._help,
             "help": self._help,
             "ls": self._command_ls,
-            "cd": self._command_cd
+            "cd": self._command_cd,
+            "push":self._command_push
         }
         self.client = socket.socket()
 
@@ -63,22 +64,44 @@ class FtpClient:
         # 显示帮助信息
         desc = {
             "h,help": "显示帮助信息",
-            "ls ‘path’": "显示指定路径目录信息，无参时显示当前目录",
-            "cd 'path'": "切换到指定路径，无参时切换到当前路径"
+            "ls 'path'": "显示指定路径目录信息，无参时显示当前目录",
+            "cd 'path'": "切换到指定路径，无参时切换到当前路径",
+            "push 'filepath'":"上传指定文件，filepath为文件的绝对路径"
         }
         for key, value in desc.items():
             print(key, value, end="   \n")
 
-    def _command_ls(self):
-        pass
+    def _command_push(self,*args):
+        command=args[0]
+        if len(command) !=2 :
+            path=command[1]
+            #判断文件是否存在
+            if os.path.isfile(path) :
+                #执行上传，首先发送文件的大小，名字
+                pass
+
+            else:
+                print("上传的目标不是一个文件，不能上传")
+        else:
+            print("push指令使用错误，输入h查看帮助")
+
+    def _command_ls(self, *args):
+        command = args[0]
+        result = self._sendCommand(" ".join(command))
+        result = result.decode("utf-8")
+        result_dict = json.loads(result)
+        if "list" in result_dict:
+            print(result_dict["list"])
+        elif "msg" in result_dict:
+            print(result_dict["msg"])
 
     def _command_cd(self, *args):
         # 切换到指定目录
         command = args[0]
         result = self._sendCommand(" ".join(command))
-        result=result.decode("utf-8")
-        result_dict=json.loads(result)
-        if "path" in result_dict :
+        result = result.decode("utf-8")
+        result_dict = json.loads(result)
+        if "path" in result_dict:
             self.__current_path = result_dict["path"]
         elif "msg" in result_dict:
             print(result_dict["msg"])

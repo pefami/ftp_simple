@@ -80,7 +80,47 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
         self.request.sendall(data)
 
     def _command_ls(self, *args):
-        pass
+        command=args[0]
+        if len(command) == 1:
+            # 没有指定路径
+            self._send_result(json.dumps({"list": os.listdir(self.__current_path)}))
+        else:
+            path = command[1]
+            # 判断路径是否是绝对路径
+            if os.path.isabs(path):
+                # 绝对路径
+                if path.startswith(self.__user_path, 0, len(path) - 2):
+                    last_path = path[len(self.__user_path) + 1:]
+                    # 判断路径是否存在
+                    if os.path.isdir(path):
+                        # 存在，显示目录
+                        self._send_result(json.dumps({"list": os.listdir(path)}))
+                    else:
+                        # 不存在，返回错误信息
+                        self._send_result(json.dumps({"msg": "访问目录不存在"}))
+                else:
+                    # 路径属于绝对路径，但不是在该用户目录下，无权访问
+                    self._send_result(json.dumps({"msg": "无权访问该目录"}))
+            else:
+                # 相对路径，拼接全路径
+                if path == "..":
+                    # 返回上一个路径
+                    abs_path = os.path.dirname(self.__current_path)
+                    if abs_path == self.__user_path:
+                        self._send_result(json.dumps({"msg": "无权访问该目录"}))
+                        return
+                elif path=="." or path.startswith(".") :
+                    #以点开头，表示当前目录
+                    self._send_result(json.dumps({"list": os.listdir(self.__current_path)}))
+                    return
+                else:
+                    abs_path = os.path.join(self.__current_path, path)
+
+                if os.path.isdir(abs_path):
+                    self._send_result(json.dumps({"list": os.listdir(abs_path)}))
+                else:
+                    self._send_result(json.dumps({"msg": "访问目录不存在"}))
+
 
     # C:\Users\Administrator\PycharmProjects\ftp_simple\ftp_serve\db\root
     def _command_cd(self, *args):
