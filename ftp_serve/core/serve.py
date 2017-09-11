@@ -80,47 +80,17 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
         self.request.sendall(data)
 
     def _command_ls(self, *args):
-        command=args[0]
+        command = args[0]
         if len(command) == 1:
             # 没有指定路径
             self._send_result(json.dumps({"list": os.listdir(self.__current_path)}))
         else:
             path = command[1]
-            # 判断路径是否是绝对路径
-            if os.path.isabs(path):
-                # 绝对路径
-                if path.startswith(self.__user_path, 0, len(path) - 2):
-                    last_path = path[len(self.__user_path) + 1:]
-                    # 判断路径是否存在
-                    if os.path.isdir(path):
-                        # 存在，显示目录
-                        self._send_result(json.dumps({"list": os.listdir(path)}))
-                    else:
-                        # 不存在，返回错误信息
-                        self._send_result(json.dumps({"msg": "访问目录不存在"}))
-                else:
-                    # 路径属于绝对路径，但不是在该用户目录下，无权访问
-                    self._send_result(json.dumps({"msg": "无权访问该目录"}))
+            msg, path, show_path = self.find_path(path)
+            if msg:
+                self._send_result(msg)
             else:
-                # 相对路径，拼接全路径
-                if path == "..":
-                    # 返回上一个路径
-                    abs_path = os.path.dirname(self.__current_path)
-                    if abs_path == self.__user_path:
-                        self._send_result(json.dumps({"msg": "无权访问该目录"}))
-                        return
-                elif path=="." or path.startswith(".") :
-                    #以点开头，表示当前目录
-                    self._send_result(json.dumps({"list": os.listdir(self.__current_path)}))
-                    return
-                else:
-                    abs_path = os.path.join(self.__current_path, path)
-
-                if os.path.isdir(abs_path):
-                    self._send_result(json.dumps({"list": os.listdir(abs_path)}))
-                else:
-                    self._send_result(json.dumps({"msg": "访问目录不存在"}))
-
+                self._send_result(json.dumps({"list": os.listdir(path)}))
 
     # C:\Users\Administrator\PycharmProjects\ftp_simple\ftp_serve\db\root
     def _command_cd(self, *args):
@@ -130,44 +100,55 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
             self._send_result(json.dumps({"path": self.__show_path}))
         else:
             path = command[1]
-            # 判断路径是否是绝对路径
-            if os.path.isabs(path):
-                # 绝对路径
-                if path.startswith(self.__user_path, 0, len(path) - 2):
-                    last_path = path[len(self.__user_path) + 1:]
-                    # 判断路径是否存在
-                    if os.path.isdir(path):
-                        # 存在，切换到指定目录下
-                        self.__show_path = last_path
-                        self.__current_path = path
-                        self._send_result(json.dumps({"path": self.__show_path}))
-                    else:
-                        # 不存在，返回错误信息
-                        self._send_result(json.dumps({"msg": "访问目录不存在"}))
-                else:
-                    # 路径属于绝对路径，但不是在该用户目录下，无权访问
-                    self._send_result(json.dumps({"msg": "无权访问该目录"}))
+            msg, path, show_path = self.find_path(path)
+            print(msg, path, show_path, end="\n")
+            if msg:
+                self._send_result(msg)
             else:
-                # 相对路径，拼接全路径
-                if path == "..":
-                    # 返回上一个路径
-                    abs_path = os.path.dirname(self.__current_path)
-                    if abs_path == self.__user_path:
-                        self._send_result(json.dumps({"msg": "已经到了能访问的最上层了"}))
-                        return
-                elif path=="." or path.startswith(".") :
-                    #以点开头，表示当前目录
-                    self._send_result(json.dumps({"path": self.__show_path}))
-                    return
-                else:
-                    abs_path = os.path.join(self.__current_path, path)
+                self.__show_path = show_path
+                self.__current_path = path
+                self._send_result(json.dumps({"path": self.__show_path}))
 
-                if os.path.isdir(abs_path):
-                    self.__show_path = abs_path[len(self.__user_path) + 1:]
-                    self.__current_path=abs_path
-                    self._send_result(json.dumps({"path": self.__show_path}))
+    # 查找路径是否合法
+    def find_path(self, path):
+        msg = None
+        # 判断路径是否是绝对路径
+        if os.path.isabs(path):
+            # 绝对路径
+            if path.startswith(self.__user_path, 0, len(path) - 2):
+                last_path = path[len(self.__user_path) + 1:]
+                # 判断路径是否存在
+                if os.path.isdir(path):
+                    # 存在，返回绝对路径和用户路径
+                    return None, path, last_path
                 else:
-                    self._send_result(json.dumps({"msg": "访问目录不存在"}))
+                    # 不存在，返回错误信息
+                    msg = json.dumps({"msg": "访问目录不存在"})
+                    return msg, None, None
+            else:
+                # 路径属于绝对路径，但不是在该用户目录下，无权访问
+                msg = json.dumps({"msg": "无权访问该目录"})
+                return msg, None, None
+        else:
+            # 相对路径，拼接全路径
+            if path == ".." or path == '../':
+                # 返回上一个路径
+                abs_path = os.path.dirname(self.__current_path)
+                if abs_path == self.__user_path:
+                    msg = json.dumps({"msg": "已经到了能访问的最上层了"})
+                    return msg, None, None
+            elif path == "." or path == './':
+                # 以点开头，表示当前目录
+                return None, self.__current_path, self.__show_path
+            else:
+                abs_path = os.path.join(self.__current_path, path)
+
+            if os.path.isdir(abs_path):
+                last_path = abs_path[len(self.__user_path) + 1:]
+                return None, abs_path, last_path
+            else:
+                msg = json.dumps({"msg": "访问目录不存在"})
+                return msg, None, None
 
 
 # 开启FTP服务端
