@@ -31,10 +31,11 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
             self.__user_path = os.path.join(serve_base_path, "db", username)
             if os.path.isdir(self.__user_path):
                 # 用户存在,验证用户的密码是否正确
-                user_info = os.path.join(self.__user_path, "config")
-                if os.path.isfile(user_info):
-                    with open(user_info, "r", encoding="utf-8") as f:
+                user_info_path = os.path.join(self.__user_path, "config")
+                if os.path.isfile(user_info_path):
+                    with open(user_info_path, "r", encoding="utf-8") as f:
                         info = json.load(f)
+                        self._user_info = info
                         if password == info["password"]:
                             # 密码正确，登录成功
                             self.__user = username
@@ -55,7 +56,8 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
     def handle_command(self):
         self.commands = {
             "ls": self._command_ls,
-            "cd": self._command_cd
+            "cd": self._command_cd,
+            "push": self._command_push
         }
         while True:
             data = self.request.recv(1024)
@@ -101,13 +103,59 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
         else:
             path = command[1]
             msg, path, show_path = self.find_path(path)
-            print(msg, path, show_path, end="\n")
             if msg:
                 self._send_result(msg)
             else:
                 self.__show_path = show_path
                 self.__current_path = path
                 self._send_result(json.dumps({"path": self.__show_path}))
+
+    def _command_push(self, *args):
+        command = args[0]
+        file_name = command[1]
+        file_size = int(command[2])
+        file_path = self.__current_path
+        if len(command) > 3:
+            save_path = command[3]
+            msg, path, show_path = self.find_path(save_path)
+            if msg:
+                #远程路径保存失败
+                self.request.sendall(msg.encode("utf-8"))
+                return
+            else:
+                file_path = path
+
+        #如果文件存在，覆盖原文件
+        file_all_path=os.path.join(file_path,file_name)
+        old_file_size=0
+        if os.path.isfile(file_all_path) :
+            old_file_size=os.stat(file_all_path).st_size
+
+        lave_size = self._user_info["lavesize"]
+        lave_size = self.tranform_size(lave_size)
+        if lave_size <file_size:
+            msg_str="您的可存储空间为%s ,已不足以上传该文件" % self._user_info["lavesize"]
+            msg=json.dump({"msg":msg_str})
+            self.request.sendall(msg.endcode("utf-8"))
+            return
+
+        #文件可上传，通知前端上传
+        self.request.sendall(json.dumps({"code":200}).encode("utf-8"))
+
+        #等待前端上传文件
+        recv_size=0
+        with open(os.path.join(file_path,file_name),"wb") as f :
+            while file_size!=recv_size:
+                data=self.request.recv(1024)
+                f.write(data)
+                recv_size+=len(data)
+
+        lave_size=lave_size+old_file_size-recv_size
+        self._user_info["lavesize"]=self.tranform_size(lave_size)
+        user_info_path=os.path.join(self.__user_path, "config")
+        #保存用户最新信息
+        json.dump(self._user_info,open(user_info_path,"w",encoding="utf-8"))
+
 
     # 查找路径是否合法
     def find_path(self, path):
@@ -150,7 +198,21 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
                 msg = json.dumps({"msg": "访问目录不存在"})
                 return msg, None, None
 
-
+    def tranform_size(self,size):
+        if isinstance(size,str):
+            if size.endswith("G") :
+                return int(size.replace("G",""))*1024*1024*1024
+            elif size.endswith("M"):
+                return int(size.replace("M",""))*1024*1024
+            elif size.endswith("K"):
+                return int(size.replace("K",""))*1024
+        elif isinstance(size,int):
+            if size>1024*1024*1024:
+                return str(int(size/(1024*1024*1024)))+"G"
+            elif size>1024*1024:
+                return str(int(size/(1024*1024)))+"M"
+            elif size>1024:
+                return str(int(size/1024))+"K"
 # 开启FTP服务端
 def startServer():
     address = (Settings.ServerIp, Settings.ServerPort)

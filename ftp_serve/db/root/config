@@ -1,5 +1,1 @@
-{
-  "username": "root",
-  "password": "123",
-  "disksize": "1G"
-}
+{"username": "root", "password": "123", "disksize": "1G", "lavesize": "1006M"}

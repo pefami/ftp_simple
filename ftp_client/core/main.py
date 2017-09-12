@@ -2,7 +2,7 @@
 # -*-encoding:utf-8 -*-
 # @Time 2017/8/21 15:56
 # @Author pefami
-import socket, json,os
+import socket, json, os, sys
 
 from ftp_client.conf import Settings
 
@@ -16,9 +16,12 @@ class FtpClient:
             "help": self._help,
             "ls": self._command_ls,
             "cd": self._command_cd,
-            "push":self._command_push
+            "push": self._command_push
         }
         self.client = socket.socket()
+        core_path = os.path.dirname(os.path.abspath(__file__))
+        base_path = os.path.dirname(core_path)
+        self._root_path = os.path.join(base_path, "db")
 
     def connet_serve(self):
         self.client.connect(FtpClient.ServerAddress)
@@ -66,24 +69,66 @@ class FtpClient:
             "h,help": "显示帮助信息",
             "ls 'path'": "显示指定路径目录信息，无参时显示当前目录",
             "cd 'path'": "切换到指定路径，无参时切换到当前路径",
-            "push 'filepath'":"上传指定文件，filepath为文件的绝对路径"
+            "push -f 'filepath' -d 'targetpath'":
+                "上传指定文件，filepath为文件的绝对路径,targetpath为服务器保存路径，默认保存在当前目录"
+
         }
         for key, value in desc.items():
             print(key, value, end="   \n")
 
-    def _command_push(self,*args):
-        command=args[0]
-        if len(command) !=2 :
-            path=command[1]
-            #判断文件是否存在
-            if os.path.isfile(path) :
-                #执行上传，首先发送文件的大小，名字
-                pass
+    def _command_push(self, *args):
+        command = args[0]
+        try:
+            index = command.index('-f')
+            local_path = command[index + 1]
+            # 判断文件是否存在
+            if not os.path.isfile(local_path):
+                print("上传的文件不存在")
+                return
 
-            else:
-                print("上传的目标不是一个文件，不能上传")
-        else:
+        except IndexError as e:
             print("push指令使用错误，输入h查看帮助")
+        except ValueError as e:
+            print("push指令使用错误，输入h查看帮助")
+
+        origin_path = None
+        try:
+            # 判断是否有定义服务器目录
+            origin_index = command.index("-d")
+            origin_path = command[origin_index + 1]
+        except Exception as e:
+            pass
+
+        file_name = os.path.split(local_path)[1]
+        # file_size = sys.getsizeof(local_path)
+        file_size = os.stat(local_path).st_size
+        origin_command = ["push", file_name, str(file_size)]
+
+        # 如果有定义服务器目录，则加入远程命令中
+        if origin_path:
+            origin_command.append(origin_path)
+
+        # 发送文件头信息，命令,文件名,文件大小,保存路径
+        self.client.send(" ".join(origin_command).encode("utf-8"))
+        # 接收服务器返回的结果
+        header_result = self.client.recv(1024).decode("utf-8");
+        print(header_result)
+        header_result = json.loads(header_result)
+        if "msg" in header_result:
+            print(header_result["msg"])
+            return
+
+            # 开始上传文件
+        send_size = 0
+        print("file_size:",file_size)
+        with open(local_path, "rb") as f:
+            while send_size != file_size:
+                data = f.read(1024)
+                self.client.sendall(data)
+                send_size += len(data)
+                # print("send_size:",send_size)
+            else:
+                print("文件上传成功")
 
     def _command_ls(self, *args):
         command = args[0]
@@ -121,6 +166,8 @@ class FtpClient:
             result_data += data
         return result_data
 
+
+# push -f C:\Users\Administrator\Desktop\时间.xml
 
 def run():
     # 创建ftp客户端
