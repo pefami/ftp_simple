@@ -57,7 +57,8 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
         self.commands = {
             "ls": self._command_ls,
             "cd": self._command_cd,
-            "push": self._command_push
+            "push": self._command_push,
+            "pull": self._command_pull
         }
         while True:
             data = self.request.recv(1024)
@@ -119,47 +120,89 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
             save_path = command[3]
             msg, path, show_path = self.find_path(save_path)
             if msg:
-                #远程路径保存失败
+                # 远程路径保存失败
                 self.request.sendall(msg.encode("utf-8"))
                 return
             else:
                 file_path = path
 
-        #如果文件存在，覆盖原文件
-        file_all_path=os.path.join(file_path,file_name)
-        old_file_size=0
-        if os.path.isfile(file_all_path) :
-            old_file_size=os.stat(file_all_path).st_size
+        # 如果文件存在，覆盖原文件
+        file_all_path = os.path.join(file_path, file_name)
+        old_file_size = 0
+        if os.path.isfile(file_all_path):
+            old_file_size = os.stat(file_all_path).st_size
 
         lave_size = self._user_info["lavesize"]
         lave_size = self.tranform_size(lave_size)
-        if lave_size <file_size:
-            msg_str="您的可存储空间为%s ,已不足以上传该文件" % self._user_info["lavesize"]
-            msg=json.dump({"msg":msg_str})
+        if lave_size < file_size:
+            msg_str = "您的可存储空间为%s ,已不足以上传该文件" % self._user_info["lavesize"]
+            msg = json.dump({"msg": msg_str})
             self.request.sendall(msg.endcode("utf-8"))
             return
 
-        #文件可上传，通知前端上传
-        self.request.sendall(json.dumps({"code":200}).encode("utf-8"))
+        # 文件可上传，通知前端上传
+        self.request.sendall(json.dumps({"code": 200}).encode("utf-8"))
 
-        #等待前端上传文件
-        recv_size=0
-        with open(os.path.join(file_path,file_name),"wb") as f :
-            while file_size!=recv_size:
-                data=self.request.recv(1024)
+        # 等待前端上传文件
+        recv_size = 0
+        with open(os.path.join(file_path, file_name), "wb") as f:
+            while file_size != recv_size:
+                data = self.request.recv(1024)
                 f.write(data)
-                recv_size+=len(data)
+                recv_size += len(data)
 
-        lave_size=lave_size+old_file_size-recv_size
-        self._user_info["lavesize"]=self.tranform_size(lave_size)
-        user_info_path=os.path.join(self.__user_path, "config")
-        #保存用户最新信息
-        json.dump(self._user_info,open(user_info_path,"w",encoding="utf-8"))
+        lave_size = lave_size + old_file_size - recv_size
+        self._user_info["lavesize"] = self.tranform_size(lave_size)
+        user_info_path = os.path.join(self.__user_path, "config")
+        # 保存用户最新信息
+        json.dump(self._user_info, open(user_info_path, "w", encoding="utf-8"))
 
+    def _command_pull(self, *args):
+        command = args[0]
+        file_path = command[2]
+        # 转换文件路径为目录路径
+        dir_path, file_name = os.path.split(file_path)
+        # 转换为绝对路径
+        msg, path, relative_path = self.find_path(dir_path)
+
+        if msg:
+            # 路径不正确，返回错误信息
+            self.request.sendall(msg.encode("utf-8"))
+            return
+
+        # 路径正确，判断文件存不存在
+        abs_path = os.path.join(path, file_name)
+        if not os.path.isfile(abs_path):
+            msg = json.dumps({"msg": "目标文件不存在"})
+            self.request.sendall(msg.encode("utf-8"))
+            return
+
+        # 文件存在，发送正确代码，及文件大小
+        file_size = os.stat(abs_path).st_size
+        code = json.dumps({"code": 200, "file_size": file_size})
+        self.request.sendall(code.encode("utf-8"))
+
+        # 客户端是否接收文件
+        result = self.request.recv(1024).decode("utf-8")
+        result = json.loads(result)
+
+        if "msg" in result:
+            return
+
+            # 开始发送文件
+        send_size = 0
+        with open(abs_path, "rb") as f:
+            while file_size != send_size:
+                data = f.read(1024)
+                self.request.sendall(data)
+                send_size += len(data)
 
     # 查找路径是否合法
     def find_path(self, path):
         msg = None
+        if not path:
+            return msg, self.__current_path, self.__show_path
+
         # 判断路径是否是绝对路径
         if os.path.isabs(path):
             # 绝对路径
@@ -198,21 +241,23 @@ class PFMRequestHandler(socketserver.BaseRequestHandler):
                 msg = json.dumps({"msg": "访问目录不存在"})
                 return msg, None, None
 
-    def tranform_size(self,size):
-        if isinstance(size,str):
-            if size.endswith("G") :
-                return int(size.replace("G",""))*1024*1024*1024
+    def tranform_size(self, size):
+        if isinstance(size, str):
+            if size.endswith("G"):
+                return int(size.replace("G", "")) * 1024 * 1024 * 1024
             elif size.endswith("M"):
-                return int(size.replace("M",""))*1024*1024
+                return int(size.replace("M", "")) * 1024 * 1024
             elif size.endswith("K"):
-                return int(size.replace("K",""))*1024
-        elif isinstance(size,int):
-            if size>1024*1024*1024:
-                return str(int(size/(1024*1024*1024)))+"G"
-            elif size>1024*1024:
-                return str(int(size/(1024*1024)))+"M"
-            elif size>1024:
-                return str(int(size/1024))+"K"
+                return int(size.replace("K", "")) * 1024
+        elif isinstance(size, int):
+            if size > 1024 * 1024 * 1024:
+                return str(int(size / (1024 * 1024 * 1024))) + "G"
+            elif size > 1024 * 1024:
+                return str(int(size / (1024 * 1024))) + "M"
+            elif size > 1024:
+                return str(int(size / 1024)) + "K"
+
+
 # 开启FTP服务端
 def startServer():
     address = (Settings.ServerIp, Settings.ServerPort)

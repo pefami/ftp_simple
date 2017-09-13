@@ -16,7 +16,9 @@ class FtpClient:
             "help": self._help,
             "ls": self._command_ls,
             "cd": self._command_cd,
-            "push": self._command_push
+            "push": self._command_push,
+            "pull": self._command_pull
+
         }
         self.client = socket.socket()
         core_path = os.path.dirname(os.path.abspath(__file__))
@@ -70,8 +72,8 @@ class FtpClient:
             "ls 'path'": "显示指定路径目录信息，无参时显示当前目录",
             "cd 'path'": "切换到指定路径，无参时切换到当前路径",
             "push -f 'filepath' -d 'targetpath'":
-                "上传指定文件，filepath为文件的绝对路径,targetpath为服务器保存路径，默认保存在当前目录"
-
+                "上传指定文件，filepath为文件的绝对路径,targetpath为服务器保存路径，默认保存在当前目录",
+            "pull -f 'filepath'": "下载服务器端文件，保存在 db 目录下"
         }
         for key, value in desc.items():
             print(key, value, end="   \n")
@@ -112,7 +114,6 @@ class FtpClient:
         self.client.send(" ".join(origin_command).encode("utf-8"))
         # 接收服务器返回的结果
         header_result = self.client.recv(1024).decode("utf-8");
-        print(header_result)
         header_result = json.loads(header_result)
         if "msg" in header_result:
             print(header_result["msg"])
@@ -120,7 +121,7 @@ class FtpClient:
 
             # 开始上传文件
         send_size = 0
-        print("file_size:",file_size)
+        print("file_size:", file_size)
         with open(local_path, "rb") as f:
             while send_size != file_size:
                 data = f.read(1024)
@@ -129,6 +130,49 @@ class FtpClient:
                 # print("send_size:",send_size)
             else:
                 print("文件上传成功")
+
+    def _command_pull(self, *args):
+        command = args[0]
+        file_name=None
+        try:
+            index = command.index('-f')
+            file_path = command[index + 1]
+            path,file_name=os.path.split(file_path)
+        except IndexError as e:
+            print("push指令使用错误，输入h查看帮助")
+            return
+        except ValueError as e:
+            print("push指令使用错误，输入h查看帮助")
+            return
+
+        #命令正确，发送命令给服务器
+        origin_command=" ".join(command)
+        self.client.sendall(origin_command.encode("utf-8"))
+
+        #等待服务器返馈
+        result=self.client.recv(1024).decode("utf-8")
+        result=json.loads(result)
+        if "msg" in result:
+            print(result["msg"])
+            return
+
+        #请求下载文件成功
+        file_size=result["file_size"]
+
+        #发送等待接收请求
+        code=json.dumps({"code":200})
+        self.client.sendall(code.encode("utf-8"))
+
+        recv_size=0
+        file_path=os.path.join(self._root_path,file_name)
+        with open(file_path,"wb") as f :
+            while recv_size!=file_size:
+                data=self.client.recv(1024)
+                f.write(data)
+                recv_size+=len(data)
+            else:
+                print("下载完成")
+
 
     def _command_ls(self, *args):
         command = args[0]
